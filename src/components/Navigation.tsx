@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileText, LayoutDashboard, Plus, Settings, LogOut, Menu, X, Sparkles } from 'lucide-react';
+import { FileText, LayoutDashboard, Plus, Settings, LogOut, Menu, X, Sparkles, Users, Building2, CheckSquare } from 'lucide-react';
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -83,6 +83,58 @@ export default function Navigation() {
             >
               <Plus className="h-5 w-5" />
               <span>New Log</span>
+            </Link>
+            
+            <Link 
+              href="/projects" 
+              className={`flex items-center space-x-3 px-3 py-2 rounded-md ${
+                isActive('/projects') 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              onClick={closeMenu}
+            >
+              <Building2 className="h-5 w-5" />
+              <span>Projects</span>
+            </Link>
+            
+            <Link 
+              href="/action-items" 
+              className={`flex items-center space-x-3 px-3 py-2 rounded-md ${
+                isActive('/action-items') 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              onClick={closeMenu}
+            >
+              <CheckSquare className="h-5 w-5" />
+              <span>Action Items</span>
+            </Link>
+            
+            <Link 
+              href="/contractors" 
+              className={`flex items-center space-x-3 px-3 py-2 rounded-md ${
+                isActive('/contractors') 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              onClick={closeMenu}
+            >
+              <Building2 className="h-5 w-5" />
+              <span>Contractors</span>
+            </Link>
+            
+            <Link 
+              href="/crew-members" 
+              className={`flex items-center space-x-3 px-3 py-2 rounded-md ${
+                isActive('/crew-members') 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              onClick={closeMenu}
+            >
+              <Users className="h-5 w-5" />
+              <span>Crew Members</span>
             </Link>
             
             <Link 
