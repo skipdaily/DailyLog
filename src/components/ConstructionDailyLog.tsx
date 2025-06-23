@@ -24,7 +24,6 @@ interface DailyLogData {
   tradesOnsite: TextItem[];
   meetings: TextItem[];
   outOfScope: TextItem[];
-  actionItems: TextItem[];
   nextDayPlan: TextItem[];
   notes: TextItem[];
 }
@@ -62,37 +61,419 @@ interface SectionProps {
   icon: React.ElementType;
   children: React.ReactNode;
   showActionButton?: boolean;
-  onCreateActionItem?: (sectionType: string, content: string) => void;
+  onCreateActionItem?: (sectionType: string, title: string, details?: {
+    description?: string;
+    priority?: string;
+    assignedTo?: string;
+    dueDate?: string;
+  }) => Promise<void>;
   sectionType?: string;
+  crewMembers?: any[];
+  subcontractors?: any[];
+}
+
+interface AutocompleteProps {
+  value: string;
+  onChange: (value: string) => void;
+  crewMembers: any[];
+  subcontractors: any[];
+  placeholder?: string;
+}
+
+interface AutocompleteProps {
+  value: string;
+  onChange: (value: string) => void;
+  crewMembers: any[];
+  subcontractors: any[];
+  placeholder?: string;
+}
+
+// AssignedToAutocomplete component - identical to action items page
+function AssignedToAutocomplete({ value, onChange, crewMembers, subcontractors, placeholder }: AutocompleteProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
+
+  // Combine crew members and subcontractors into assignee options
+  const assigneeOptions = React.useMemo(() => {
+    const options: Array<{ id: string; name: string; type: 'crew' | 'subcontractor'; details?: string }> = [];
+    
+    // Add crew members - flatten crew members from all crews
+    crewMembers.forEach(crew => {
+      if (crew.members) {
+        crew.members.forEach((member: any) => {
+          options.push({
+            id: `crew_${member.id}`,
+            name: member.name,
+            type: 'crew',
+            details: crew.name ? `(${crew.name})` : ''
+          });
+        });
+      }
+    });
+    
+    // Add subcontractors
+    subcontractors.forEach(sub => {
+      options.push({
+        id: `sub_${sub.id}`,
+        name: sub.name,
+        type: 'subcontractor',
+        details: ''
+      });
+    });
+    
+    return options;
+  }, [crewMembers, subcontractors]);
+
+  // Filter options based on input
+  const filteredOptions = assigneeOptions.filter(option =>
+    option.name.toLowerCase().includes(inputValue.toLowerCase()) ||
+    (option.details && option.details.toLowerCase().includes(inputValue.toLowerCase()))
+  );
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setInputValue(newValue);
+    onChange(newValue);
+    setIsOpen(true);
+  };
+
+  const handleOptionClick = (option: typeof assigneeOptions[0]) => {
+    setInputValue(option.name);
+    onChange(option.name);
+    setIsOpen(false);
+  };
+
+  const handleInputFocus = () => {
+    setIsOpen(true);
+  };
+
+  const handleInputBlur = () => {
+    // Delay closing to allow option clicks
+    setTimeout(() => setIsOpen(false), 200);
+  };
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        onBlur={handleInputBlur}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        placeholder={placeholder || "Type to search crew/contractors or enter custom name"}
+      />
+      
+      {isOpen && (filteredOptions.length > 0 || inputValue.trim()) && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {filteredOptions.length > 0 && (
+            <>
+              {filteredOptions.map((option) => (
+                <div
+                  key={option.id}
+                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center justify-between"
+                  onClick={() => handleOptionClick(option)}
+                >
+                  <div>
+                    <span className="font-medium">{option.name}</span>
+                    {option.details && (
+                      <span className="text-sm text-gray-500 ml-2">{option.details}</span>
+                    )}
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    option.type === 'crew' 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {option.type === 'crew' ? 'Crew' : 'Contractor'}
+                  </span>
+                </div>
+              ))}
+              {inputValue.trim() && !filteredOptions.some(opt => opt.name.toLowerCase() === inputValue.toLowerCase()) && (
+                <div className="px-3 py-2 border-t border-gray-200">
+                  <div
+                    className="flex items-center justify-between hover:bg-gray-50 cursor-pointer p-2 rounded"
+                    onClick={() => {
+                      setInputValue(inputValue.trim());
+                      onChange(inputValue.trim());
+                      setIsOpen(false);
+                    }}
+                  >
+                    <span>Use "{inputValue.trim()}" as custom assignee</span>
+                    <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">Custom</span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          
+          {filteredOptions.length === 0 && inputValue.trim() && (
+            <div className="px-3 py-2">
+              <div
+                className="flex items-center justify-between hover:bg-gray-50 cursor-pointer p-2 rounded"
+                onClick={() => {
+                  setInputValue(inputValue.trim());
+                  onChange(inputValue.trim());
+                  setIsOpen(false);
+                }}
+              >
+                <span>Add "{inputValue.trim()}" as assignee</span>
+                <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">Custom</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Section component for consistent UI sections
-const Section: React.FC<SectionProps> = ({ title, icon: Icon, children, showActionButton, onCreateActionItem, sectionType }) => (
-  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-3">
-        <Icon className="h-5 w-5 text-blue-600" />
-        <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+const Section: React.FC<SectionProps> = ({ title, icon: Icon, children, showActionButton, onCreateActionItem, sectionType, crewMembers = [], subcontractors = [] }) => {
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [actionFormData, setActionFormData] = useState({
+    title: '',
+    description: '',
+    source_type: 'action_item' as 'meeting' | 'out_of_scope' | 'action_item' | 'observation',
+    priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
+    status: 'open' as 'open' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled',
+    assignedTo: '',
+    dueDate: ''
+  });
+
+  const handleCreateAction = async () => {
+    if (actionFormData.title.trim() && onCreateActionItem && sectionType) {
+      try {
+        // Call the parent function to handle the action item creation
+        await onCreateActionItem(sectionType, actionFormData.title, {
+          description: actionFormData.description,
+          priority: actionFormData.priority,
+          assignedTo: actionFormData.assignedTo,
+          dueDate: actionFormData.dueDate
+        });
+        
+        // Reset form and close modal
+        setActionFormData({
+          title: '',
+          description: '',
+          source_type: 'action_item',
+          priority: 'medium',
+          status: 'open',
+          assignedTo: '',
+          dueDate: ''
+        });
+        setShowActionModal(false);
+      } catch (error) {
+        console.error('Error creating action item:', error);
+      }
+    }
+  };
+
+  // Map section types to source types for display
+  const getSourceType = () => {
+    const sourceTypeMap: { [key: string]: string } = {
+      'meetings': 'meeting',
+      'outOfScope': 'out_of_scope', 
+      'actionItems': 'action_item',
+      'notes': 'observation'
+    };
+    return sourceTypeMap[sectionType || ''] || 'action_item';
+  };
+
+  return (
+    <>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Icon className="h-5 w-5 text-blue-600" />
+            <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+          </div>
+          {showActionButton && onCreateActionItem && sectionType && (
+            <button
+              onClick={() => {
+                // Get selected text from the current section
+                const selection = window.getSelection();
+                const selectedText = selection?.toString().trim() || '';
+                
+                setActionFormData({
+                  ...actionFormData,
+                  title: selectedText,
+                  source_type: getSourceType() as any
+                });
+                setShowActionModal(true);
+              }}
+              className="bg-green-600 text-white px-3 py-1 rounded-md text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
+              title="Create Action Item"
+            >
+              <Plus className="w-4 h-4" />
+              Action Item
+            </button>
+          )}
+        </div>
+        {children}
       </div>
-      {showActionButton && onCreateActionItem && sectionType && (
-        <button
-          onClick={() => {
-            const content = prompt(`Create action item from ${title}:\n\nEnter the action item description:`);
-            if (content && content.trim()) {
-              onCreateActionItem(sectionType, content.trim());
-            }
-          }}
-          className="bg-green-600 text-white px-3 py-1 rounded-md text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
-          title="Create Action Item"
-        >
-          <Plus className="w-4 h-4" />
-          Action Item
-        </button>
+
+      {/* Full Action Item Creation Modal - Exact copy of action items page form */}
+      {showActionModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">Add New Action Item</h2>
+            
+            <form onSubmit={(e) => { e.preventDefault(); handleCreateAction(); }} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Title *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={actionFormData.title}
+                    onChange={(e) => setActionFormData({ ...actionFormData, title: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter action item title"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={actionFormData.description}
+                    onChange={(e) => setActionFormData({ ...actionFormData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter detailed description"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Source Type
+                  </label>
+                  <select
+                    value={actionFormData.source_type}
+                    onChange={(e) => setActionFormData({ ...actionFormData, source_type: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="action_item">Action Item</option>
+                    <option value="meeting">Meeting/Discussion</option>
+                    <option value="out_of_scope">Out-of-Scope Work</option>
+                    <option value="observation">Observation/Note</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Project
+                  </label>
+                  <select
+                    value=""
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-500"
+                  >
+                    <option value="">Will use current project</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Assigned To
+                  </label>
+                  <AssignedToAutocomplete
+                    value={actionFormData.assignedTo}
+                    onChange={(value) => setActionFormData({ ...actionFormData, assignedTo: value })}
+                    crewMembers={crewMembers}
+                    subcontractors={subcontractors}
+                    placeholder="Type to search crew/contractors or enter custom name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={actionFormData.priority}
+                    onChange={(e) => setActionFormData({ ...actionFormData, priority: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={actionFormData.status}
+                    onChange={(e) => setActionFormData({ ...actionFormData, status: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="open">Open</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={actionFormData.dueDate}
+                    onChange={(e) => setActionFormData({ ...actionFormData, dueDate: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionModal(false);
+                    setActionFormData({
+                      title: '',
+                      description: '',
+                      source_type: 'action_item',
+                      priority: 'medium',
+                      status: 'open',
+                      assignedTo: '',
+                      dueDate: ''
+                    });
+                  }}
+                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!actionFormData.title.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  Add Action Item
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
-    </div>
-    {children}
-  </div>
-);
+    </>
+  );
+};
 
 // Text items list component
 const TextItemsList = ({ 
@@ -450,16 +831,7 @@ const PrintView = React.forwardRef<HTMLDivElement, { logData: DailyLogData }>(
             </div>
 
             <div>
-              <h3 className="font-bold mb-2">6. Action Items</h3>
-              <ul className="list-disc list-inside space-y-1">
-                {logData.actionItems.filter(item => item.text.trim()).map(item => (
-                  <li key={item.id}>{item.text}</li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="font-bold mb-2">7. Plan for Next Day (All Trades)</h3>
+              <h3 className="font-bold mb-2">6. Plan for Next Day (All Trades)</h3>
               <ul className="list-disc list-inside space-y-1">
                 {logData.nextDayPlan.filter(item => item.text.trim()).map(item => (
                   <li key={item.id}>{item.text}</li>
@@ -468,7 +840,7 @@ const PrintView = React.forwardRef<HTMLDivElement, { logData: DailyLogData }>(
             </div>
 
             <div>
-              <h3 className="font-bold mb-2">8. Notes / Observations</h3>
+              <h3 className="font-bold mb-2">7. Notes / Observations</h3>
               <div className="space-y-2">
                 {logData.notes.filter(item => item.text.trim()).map(item => (
                   <div key={item.id} className="whitespace-pre-wrap">{item.text}</div>
@@ -511,7 +883,6 @@ const ConstructionDailyLog = () => {
     tradesOnsite: createDefaultArray(),
     meetings: createDefaultArray(),
     outOfScope: createDefaultArray(),
-    actionItems: createDefaultArray(),
     nextDayPlan: createDefaultArray(),
     notes: createDefaultArray(),
   });
@@ -640,7 +1011,6 @@ const ConstructionDailyLog = () => {
         { type: 'trades_onsite', items: logData.tradesOnsite },
         { type: 'meetings', items: logData.meetings },
         { type: 'out_of_scope', items: logData.outOfScope },
-        { type: 'action_items', items: logData.actionItems },
         { type: 'next_day_plan', items: logData.nextDayPlan },
         { type: 'notes', items: logData.notes }
       ];
@@ -721,7 +1091,12 @@ const ConstructionDailyLog = () => {
     window.location.reload();
   };
 
-  const createActionItem = async (sectionType: string, content: string) => {
+  const createActionItem = async (sectionType: string, title: string, details?: {
+    description?: string;
+    priority?: string;
+    assignedTo?: string;
+    dueDate?: string;
+  }) => {
     try {
       // Map section types to source types
       const sourceTypeMap: { [key: string]: string } = {
@@ -735,14 +1110,18 @@ const ConstructionDailyLog = () => {
 
       // Create action item data
       const actionItemData = {
-        title: content.length > 50 ? content.substring(0, 50) + '...' : content,
-        description: content,
+        title: title.trim(),
+        description: details?.description?.trim() || null,
         source_type: sourceType,
-        source_content: content,
+        source_content: title.trim(),
         project_id: logData.projectId,
-        priority: 'medium',
+        assigned_to: details?.assignedTo?.trim() || null,
+        priority: details?.priority || 'medium',
         status: 'open',
-        created_by: logData.superintendentName || 'Unknown'
+        due_date: details?.dueDate || null,
+        created_by: logData.superintendentName || 'Unknown',
+        created_at: new Date().toISOString(),
+        log_id: null
       };
 
       // Insert into action_items table
@@ -918,6 +1297,8 @@ const ConstructionDailyLog = () => {
           showActionButton={true}
           onCreateActionItem={createActionItem}
           sectionType="meetings"
+          crewMembers={availableCrews}
+          subcontractors={availableSubcontractors}
         >
           <TextItemsList 
             items={logData.meetings || createDefaultArray()} 
@@ -934,6 +1315,8 @@ const ConstructionDailyLog = () => {
           showActionButton={true}
           onCreateActionItem={createActionItem}
           sectionType="outOfScope"
+          crewMembers={availableCrews}
+          subcontractors={availableSubcontractors}
         >
           <TextItemsList 
             items={logData.outOfScope || createDefaultArray()} 
@@ -942,23 +1325,8 @@ const ConstructionDailyLog = () => {
           />
         </Section>
 
-        {/* Action Items */}
-        <Section 
-          title="6. Action Items" 
-          icon={CheckSquare}
-          showActionButton={true}
-          onCreateActionItem={createActionItem}
-          sectionType="actionItems"
-        >
-          <TextItemsList 
-            items={logData.actionItems || createDefaultArray()} 
-            setItems={(newItems: TextItem[]) => setLogData(prev => ({ ...prev, actionItems: newItems }))} 
-            placeholder="Describe action items..."
-          />
-        </Section>
-
         {/* Next Day Plan */}
-        <Section title="7. Plan for Next Day (All Trades)" icon={Calendar}>
+        <Section title="6. Plan for Next Day (All Trades)" icon={Calendar}>
           <TextItemsList 
             items={logData.nextDayPlan || createDefaultArray()} 
             setItems={(newItems: TextItem[]) => setLogData(prev => ({ ...prev, nextDayPlan: newItems }))} 
@@ -968,11 +1336,13 @@ const ConstructionDailyLog = () => {
 
         {/* Notes */}
         <Section 
-          title="8. Notes / Observations" 
+          title="7. Notes / Observations" 
           icon={Eye}
           showActionButton={true}
           onCreateActionItem={createActionItem}
           sectionType="notes"
+          crewMembers={availableCrews}
+          subcontractors={availableSubcontractors}
         >
           <TextItemsList 
             items={logData.notes || createDefaultArray()} 

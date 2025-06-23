@@ -225,7 +225,27 @@ Superintendent: ${log.superintendent_name}
   }
 
   if (data.subcontractors.length > 0) {
-    context += `AVAILABLE SUBCONTRACTORS: ${data.subcontractors.map((s: any) => s.name).join(', ')}\n\n`;
+    context += `SUBCONTRACTORS:\n`;
+    data.subcontractors.forEach((subcontractor: any) => {
+      context += `- ${subcontractor.name}`;
+      if (subcontractor.specialty) context += ` (${subcontractor.specialty})`;
+      if (subcontractor.contact_person) context += ` - Contact: ${subcontractor.contact_person}`;
+      if (subcontractor.email || subcontractor.contact_email) {
+        const email = subcontractor.email || subcontractor.contact_email;
+        context += ` - Email: ${email}`;
+      }
+      if (subcontractor.phone || subcontractor.contact_phone) {
+        const phone = subcontractor.phone || subcontractor.contact_phone;
+        context += ` - Phone: ${phone}`;
+      }
+      if (subcontractor.address) context += ` - Address: ${subcontractor.address}`;
+      if (subcontractor.license_number) context += ` - License: ${subcontractor.license_number}`;
+      if (subcontractor.insurance_info) context += ` - Insurance: ${subcontractor.insurance_info}`;
+      if (subcontractor.notes) context += ` - Notes: ${subcontractor.notes}`;
+      if (subcontractor.is_active === false) context += ` - ⚠️ INACTIVE`;
+      context += `\n`;
+    });
+    context += `\n`;
   }
 
   // Add action items information with comprehensive timeline analysis
@@ -516,17 +536,176 @@ async function logConversationContext(conversationId: string, constructionData: 
   }
 }
 
+// Action execution functions
+async function executeAction(actionType: string, actionData: any) {
+  try {
+    switch (actionType) {
+      case 'update_action_item_status':
+        return await updateActionItemStatus(actionData.id, actionData.status, actionData.note, actionData.user);
+      
+      case 'add_action_item_note':
+        return await addActionItemNote(actionData.id, actionData.note, actionData.user);
+      
+      case 'create_action_item':
+        return await createActionItem(actionData);
+      
+      case 'update_action_item_priority':
+        return await updateActionItemPriority(actionData.id, actionData.priority, actionData.user);
+      
+      case 'assign_action_item':
+        return await assignActionItem(actionData.id, actionData.assignedTo, actionData.user);
+      
+      case 'update_action_item_due_date':
+        return await updateActionItemDueDate(actionData.id, actionData.dueDate, actionData.user);
+      
+      default:
+        throw new Error(`Unknown action type: ${actionType}`);
+    }
+  } catch (error) {
+    console.error(`Error executing action ${actionType}:`, error);
+    throw error;
+  }
+}
+
+async function updateActionItemStatus(id: string, status: string, note?: string, user?: string) {
+  const updateData: any = {
+    status,
+    updated_at: new Date().toISOString()
+  };
+
+  if (status === 'completed') {
+    updateData.completed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from('action_items')
+    .update(updateData)
+    .eq('id', id)
+    .select();
+
+  if (error) throw error;
+
+  // Add a note about the status change
+  if (note) {
+    await addActionItemNote(id, note, user || 'AI Assistant');
+  } else {
+    await addActionItemNote(id, `Status updated to ${status}`, user || 'AI Assistant');
+  }
+
+  return { success: true, data, message: `Action item status updated to ${status}` };
+}
+
+async function addActionItemNote(id: string, note: string, user: string = 'AI Assistant') {
+  const { data, error } = await supabase
+    .from('action_item_notes')
+    .insert([{
+      action_item_id: id,
+      note,
+      created_by: user,
+      created_at: new Date().toISOString()
+    }])
+    .select();
+
+  if (error) throw error;
+  return { success: true, data, message: 'Note added successfully' };
+}
+
+async function createActionItem(actionData: any) {
+  const { data, error } = await supabase
+    .from('action_items')
+    .insert([{
+      title: actionData.title,
+      description: actionData.description,
+      priority: actionData.priority || 'medium',
+      status: 'open',
+      assigned_to: actionData.assignedTo,
+      due_date: actionData.dueDate,
+      project_id: actionData.projectId,
+      daily_log_id: actionData.dailyLogId,
+      source: actionData.source || 'ai_assistant',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }])
+    .select();
+
+  if (error) throw error;
+
+  // Add initial note if provided
+  if (actionData.initialNote) {
+    await addActionItemNote(data[0].id, actionData.initialNote, actionData.user || 'AI Assistant');
+  }
+
+  return { success: true, data, message: 'Action item created successfully' };
+}
+
+async function updateActionItemPriority(id: string, priority: string, user?: string) {
+  const { data, error } = await supabase
+    .from('action_items')
+    .update({
+      priority,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .select();
+
+  if (error) throw error;
+
+  await addActionItemNote(id, `Priority updated to ${priority}`, user || 'AI Assistant');
+  return { success: true, data, message: `Action item priority updated to ${priority}` };
+}
+
+async function assignActionItem(id: string, assignedTo: string, user?: string) {
+  const { data, error } = await supabase
+    .from('action_items')
+    .update({
+      assigned_to: assignedTo,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .select();
+
+  if (error) throw error;
+
+  await addActionItemNote(id, `Assigned to ${assignedTo}`, user || 'AI Assistant');
+  return { success: true, data, message: `Action item assigned to ${assignedTo}` };
+}
+
+async function updateActionItemDueDate(id: string, dueDate: string, user?: string) {
+  const { data, error } = await supabase
+    .from('action_items')
+    .update({
+      due_date: dueDate,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .select();
+
+  if (error) throw error;
+
+  const formattedDate = new Date(dueDate).toLocaleDateString();
+  await addActionItemNote(id, `Due date updated to ${formattedDate}`, user || 'AI Assistant');
+  return { success: true, data, message: `Action item due date updated to ${formattedDate}` };
+}
+
+// ...existing fetchConstructionData function...
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
   try {
-    const { message, sessionId, userId, conversationHistory } = await request.json();
+    const { message, sessionId, userId, conversationHistory, action } = await request.json();
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: 'OpenAI API key not configured' },
         { status: 500 }
       );
+    }
+
+    // Handle direct database actions requested by AI
+    if (action) {
+      const result = await executeAction(action.actionType, action.actionData);
+      return NextResponse.json(result);
     }
 
     // Fetch current construction data
@@ -547,6 +726,29 @@ export async function POST(request: NextRequest) {
     const systemPrompt = `You are an AI construction assistant with access to real-time project data and comprehensive action item tracking. You help construction superintendents and project managers analyze their daily logs, identify patterns, and make informed decisions.
 
 ${dataContext}
+
+🔧 **DATABASE ACTION CAPABILITIES**: 
+You can now perform database actions when users request changes. When a user asks you to update something in the database, you should:
+
+1. **Explain what you're going to do** in your response
+2. **Use the available action types** to make the change:
+   - update_action_item_status: Change status (open, in_progress, completed, cancelled)
+   - add_action_item_note: Add progress notes
+   - update_action_item_priority: Change priority (low, medium, high, urgent)
+   - assign_action_item: Assign to someone
+   - update_action_item_due_date: Set or change due date
+
+3. **Reference the specific action item ID** from the data above
+4. **Confirm the action** was successful
+
+Example user requests you can handle:
+- "Mark action item #123 as completed"
+- "Change the priority of the drywall order to urgent"
+- "Add a note to action item #456 saying the materials arrived"
+- "Assign the electrical work to John Smith"
+- "Set the due date for action item #789 to next Friday"
+
+When making changes, always include relevant context and explain what was changed.
 
 CRITICAL ANALYSIS INSTRUCTIONS:
 
@@ -617,6 +819,22 @@ You have access to detailed crew member information including names, roles, hour
 - Crew member skills and specialties
 - Availability and scheduling
 
+SUBCONTRACTOR DETAILS:
+You have complete access to subcontractor information including contact details, specialties, and business information. You can:
+- Draft professional emails to specific subcontractors using their correct email addresses
+- Reference their contact person names, phone numbers, and specialties
+- Include their license numbers and insurance information when relevant
+- Access their addresses for scheduling and logistics
+- Use their notes and historical information for context
+- Filter by active/inactive status
+
+When drafting emails or communications:
+- Always use the specific contact person's name if available
+- Include the correct email address from the database
+- Reference their specialty or area of expertise
+- Be professional and include relevant project context
+- Use their preferred contact methods (email/phone) as indicated in their records
+
 Always reference specific data from the logs and crew member records when possible. Use timestamps to provide accurate, current information. If asked about logs but no data is available, explain that no logs have been created yet and suggest creating the first daily log.
 
 Be conversational, practical, and focus on actionable insights for construction management. Always base your responses on the most current information available in the timestamps.`;
@@ -666,22 +884,49 @@ Be conversational, practical, and focus on actionable insights for construction 
       );
     }
 
+    // Check for and execute actions in the response
+    let actionResult = null;
+    let finalResponse = response;
+
+    try {
+      // Look for action JSON in the response
+      const actionMatch = response.match(/\{"action":\s*\{[^}]+\}\}/);
+      if (actionMatch) {
+        const actionJson = JSON.parse(actionMatch[0]);
+        const { actionType, actionData } = actionJson.action;
+        
+        console.log('Executing action:', actionType, actionData);
+        actionResult = await executeAction(actionType, actionData);
+        
+        // Update the response to include action confirmation
+        finalResponse = response.replace(actionMatch[0], '') + 
+          `\n\n✅ **Action Completed**: ${actionResult.message}`;
+      }
+    } catch (actionError) {
+      console.error('Error executing action:', actionError);
+      finalResponse = response + 
+        `\n\n❌ **Action Failed**: ${actionError instanceof Error ? actionError.message : 'Unknown error occurred'}`;
+    }
+
     // Log AI response
-    await logMessage(conversationId, 'assistant', response, {
+    await logMessage(conversationId, 'assistant', finalResponse, {
       model: 'gpt-4o-mini',
       responseTime,
       tokenCount: completion.usage?.total_tokens,
       promptTokens: completion.usage?.prompt_tokens,
-      completionTokens: completion.usage?.completion_tokens
+      completionTokens: completion.usage?.completion_tokens,
+      actionExecuted: actionResult ? true : false,
+      actionResult: actionResult
     });
 
     return NextResponse.json({ 
-      response,
+      response: finalResponse,
       conversationId,
       sessionId: sessionId || `session_${Date.now()}`,
       metadata: {
         responseTime,
-        tokenCount: completion.usage?.total_tokens
+        tokenCount: completion.usage?.total_tokens,
+        actionExecuted: actionResult ? true : false
       }
     });
 

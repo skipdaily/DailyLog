@@ -207,6 +207,110 @@ export default function AssistantPage() {
     });
   };
 
+  // Function to detect and execute AI actions based on user message
+  const detectAndExecuteActions = async (message: string, aiResponse: string) => {
+    // Simple pattern matching to detect action requests
+    const actionPatterns = [
+      {
+        pattern: /mark.*action.*item.*#?(\d+).*(?:as\s+)?(completed|done|finished)/i,
+        type: 'update_action_item_status',
+        extractData: (match: RegExpMatchArray) => ({
+          actionItemId: match[1],
+          status: 'completed'
+        })
+      },
+      {
+        pattern: /(?:update|change|set).*priority.*(?:of|for).*#?(\d+).*(?:to\s+)?(urgent|high|medium|low)/i,
+        type: 'update_action_item_priority',
+        extractData: (match: RegExpMatchArray) => ({
+          actionItemId: match[1],
+          priority: match[2].toLowerCase()
+        })
+      },
+      {
+        pattern: /assign.*#?(\d+).*(?:to\s+)(.+?)(?:\s|$)/i,
+        type: 'assign_action_item',
+        extractData: (match: RegExpMatchArray) => ({
+          actionItemId: match[1],
+          assignedTo: match[2].trim()
+        })
+      },
+      {
+        pattern: /add.*note.*(?:to\s+)?(?:action.*item\s+)?#?(\d+).*?[:"'](.+)[:"']?/i,
+        type: 'add_action_item_note',
+        extractData: (match: RegExpMatchArray) => ({
+          actionItemId: match[1],
+          note: match[2].trim()
+        })
+      },
+      {
+        pattern: /(?:set|update).*due.*date.*(?:for|of).*#?(\d+).*(?:to\s+)?(\d{4}-\d{2}-\d{2}|\w+\s+\d{1,2}(?:,\s+\d{4})?)/i,
+        type: 'update_action_item_due_date',
+        extractData: (match: RegExpMatchArray) => {
+          let dueDate = match[2];
+          // Simple date parsing - you might want to make this more sophisticated
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+            // Convert relative dates like "next Friday" to ISO format
+            // This is a simplified implementation
+            const today = new Date();
+            if (dueDate.toLowerCase().includes('friday')) {
+              const friday = new Date(today);
+              friday.setDate(today.getDate() + (5 - today.getDay() + 7) % 7);
+              dueDate = friday.toISOString().split('T')[0];
+            } else if (dueDate.toLowerCase().includes('monday')) {
+              const monday = new Date(today);
+              monday.setDate(today.getDate() + (1 - today.getDay() + 7) % 7);
+              dueDate = monday.toISOString().split('T')[0];
+            }
+          }
+          return {
+            actionItemId: match[1],
+            dueDate
+          };
+        }
+      }
+    ];
+
+    for (const pattern of actionPatterns) {
+      const match = message.match(pattern.pattern);
+      if (match) {
+        try {
+          const actionData = pattern.extractData(match);
+          const action = {
+            type: pattern.type,
+            data: actionData
+          };
+
+          const actionResponse = await fetch('/api/ai-actions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action,
+              userId: 'current_user'
+            }),
+          });
+
+          const actionResult = await actionResponse.json();
+          
+          if (actionResult.success) {
+            // Update the AI response to include confirmation
+            return aiResponse + '\n\n✅ **Action Completed**: ' + actionResult.message;
+          } else {
+            // Add error message to AI response
+            return aiResponse + '\n\n❌ **Action Failed**: ' + actionResult.error;
+          }
+        } catch (error) {
+          console.error('Error executing action:', error);
+          return aiResponse + '\n\n❌ **Action Failed**: Unable to execute the requested action.';
+        }
+      }
+    }
+
+    return aiResponse; // No actions detected, return original response
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -254,9 +358,12 @@ export default function AssistantPage() {
       
       const data = await response.json();
       
+      // Check for and execute any actions based on the user's message
+      const enhancedResponse = await detectAndExecuteActions(currentQuery, data.response);
+      
       const aiMessage: Message = {
         role: 'assistant',
-        content: data.response,
+        content: enhancedResponse,
         timestamp: new Date().toISOString()
       };
 
@@ -362,6 +469,44 @@ export default function AssistantPage() {
         
         <div className="text-xs text-gray-500 mt-3 text-center">
           💡 <strong>Tip:</strong> Ask specific questions about safety, productivity, weather impacts, or schedule analysis for better insights.
+        </div>
+
+        {/* Quick Action Buttons */}
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+            ⚡ Quick Actions
+            <span className="text-xs text-gray-500">(Click to insert command)</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <button
+              onClick={() => setQuery("Show me all overdue action items")}
+              className="p-2 bg-red-50 text-red-700 rounded border border-red-200 hover:bg-red-100 transition-colors text-left"
+            >
+              📋 Show Overdue Items
+            </button>
+            <button
+              onClick={() => setQuery("What action items need attention today?")}
+              className="p-2 bg-yellow-50 text-yellow-700 rounded border border-yellow-200 hover:bg-yellow-100 transition-colors text-left"
+            >
+              ⚠️ Today's Priorities
+            </button>
+            <button
+              onClick={() => setQuery("Show me recent daily log activity")}
+              className="p-2 bg-blue-50 text-blue-700 rounded border border-blue-200 hover:bg-blue-100 transition-colors text-left"
+            >
+              📊 Recent Activity
+            </button>
+            <button
+              onClick={() => setQuery("What projects need the most attention?")}
+              className="p-2 bg-purple-50 text-purple-700 rounded border border-purple-200 hover:bg-purple-100 transition-colors text-left"
+            >
+              🎯 Project Focus
+            </button>
+          </div>
+          
+          <div className="mt-3 text-xs text-gray-600">
+            <strong>Database Actions:</strong> Try commands like "Mark action item #123 as completed" or "Change priority of item #456 to urgent"
+          </div>
         </div>
 
         <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-gray-200">

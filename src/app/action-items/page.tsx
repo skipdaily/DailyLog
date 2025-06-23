@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, AlertCircle, CheckCircle, Clock, AlertTriangle, FileText, MessageSquare } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 interface ActionItem {
@@ -37,9 +38,33 @@ interface Project {
   name: string;
 }
 
+interface CrewMember {
+  id: string;
+  name: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+}
+
+interface Subcontractor {
+  id: string;
+  name: string;
+  specialty?: string;
+  contact_person?: string;
+  email?: string;
+  contact_email?: string;
+  phone?: string;
+  contact_phone?: string;
+  is_active?: boolean;
+}
+
 export default function ActionItemsPage() {
+  const searchParams = useSearchParams();
+  
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([]);
+  const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -70,7 +95,38 @@ export default function ActionItemsPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+    
+    // Check for URL parameters to auto-populate form
+    const shouldAdd = searchParams.get('add');
+    if (shouldAdd === 'true') {
+      const title = searchParams.get('title') || '';
+      const description = searchParams.get('description') || '';
+      const sourceType = searchParams.get('source_type') || 'action_item';
+      const projectId = searchParams.get('project_id') || '';
+      const createdBy = searchParams.get('created_by') || 'Thomas Gould';
+      
+      // Update form data with URL parameters
+      setFormData({
+        title,
+        description,
+        source_type: sourceType as 'meeting' | 'out_of_scope' | 'action_item' | 'observation',
+        project_id: projectId,
+        assigned_to: '',
+        priority: 'medium',
+        status: 'open',
+        due_date: '',
+        created_by: createdBy
+      });
+      
+      // Show the add form
+      setShowAddForm(true);
+      
+      // Clean up URL parameters after auto-populating
+      if (window.history.replaceState) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [searchParams]);
 
   const fetchData = async () => {
     try {
@@ -97,8 +153,27 @@ export default function ActionItemsPage() {
 
       if (projectsError) throw projectsError;
 
+      // Fetch crew members
+      const { data: crewData, error: crewError } = await supabase
+        .from('crew_members')
+        .select('id, name, role, email, phone')
+        .order('name');
+
+      if (crewError) throw crewError;
+
+      // Fetch active subcontractors
+      const { data: subcontractorsData, error: subcontractorsError } = await supabase
+        .from('subcontractors')
+        .select('id, name, specialty, contact_person, email, contact_email, phone, contact_phone, is_active')
+        .eq('is_active', true)
+        .order('name');
+
+      if (subcontractorsError) throw subcontractorsError;
+
       setActionItems(itemsData || []);
       setProjects(projectsData || []);
+      setCrewMembers(crewData || []);
+      setSubcontractors(subcontractorsData || []);
     } catch (error: any) {
       console.error('Error fetching data:', error);
       setError(error.message || 'Failed to fetch data');
@@ -167,22 +242,75 @@ export default function ActionItemsPage() {
       setError('');
       setSuccess('');
 
+      // Validate required fields
+      if (!formData.title.trim()) {
+        setError('Title is required');
+        return;
+      }
+
+      // Prepare the data for submission
+      const submitData = {
+        title: formData.title.trim(),
+        description: formData.description?.trim() || null,
+        source_type: formData.source_type,
+        project_id: formData.project_id || null,
+        assigned_to: formData.assigned_to?.trim() || null,
+        priority: formData.priority,
+        status: formData.status,
+        due_date: formData.due_date || null,
+        created_by: formData.created_by,
+        updated_at: new Date().toISOString(),
+        // Don't include log_id since it's not set in the form
+        log_id: null,
+        source_content: null
+      };
+
+      console.log('Submitting data:', submitData);
+
       if (editingItem) {
         // Update existing action item
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('action_items')
-          .update(formData)
-          .eq('id', editingItem.id);
+          .update(submitData)
+          .eq('id', editingItem.id)
+          .select();
 
-        if (error) throw error;
+        console.log('Update response:', { data, error });
+        if (error) {
+          console.error('Supabase update error:', error);
+          console.error('Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          });
+          throw error;
+        }
         setSuccess('Action item updated successfully!');
       } else {
-        // Add new action item
-        const { error } = await supabase
-          .from('action_items')
-          .insert([formData]);
+        // Add new action item - include created_at for new items
+        const newItemData = {
+          ...submitData,
+          created_at: new Date().toISOString()
+        };
 
-        if (error) throw error;
+        console.log('Inserting new item data:', newItemData);
+        const { data, error } = await supabase
+          .from('action_items')
+          .insert([newItemData])
+          .select();
+
+        console.log('Insert response:', { data, error });
+        if (error) {
+          console.error('Supabase insert error:', error);
+          console.error('Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          });
+          throw error;
+        }
         setSuccess('Action item added successfully!');
       }
 
@@ -190,7 +318,27 @@ export default function ActionItemsPage() {
       fetchData();
     } catch (error: any) {
       console.error('Error saving action item:', error);
-      setError(error.message || 'Failed to save action item');
+      console.error('Full error object:', JSON.stringify(error, null, 2));
+      
+      // Better error handling
+      let errorMessage = 'Failed to save action item';
+      
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (error?.details) {
+        errorMessage = error.details;
+      } else if (error?.hint) {
+        errorMessage = error.hint;
+      } else if (error?.code) {
+        errorMessage = `Database error (${error.code})`;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (typeof error === 'object') {
+        // If it's still an empty object or unexpected structure
+        errorMessage = `Unexpected error: ${JSON.stringify(error)}`;
+      }
+      
+      setError(errorMessage);
     }
   };
 
@@ -714,12 +862,12 @@ export default function ActionItemsPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Assigned To
                     </label>
-                    <input
-                      type="text"
+                    <AssignedToAutocomplete
                       value={formData.assigned_to}
-                      onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Person or role responsible"
+                      onChange={(value) => setFormData({ ...formData, assigned_to: value })}
+                      crewMembers={crewMembers}
+                      subcontractors={subcontractors}
+                      placeholder="Type to search crew/contractors or enter custom name"
                     />
                   </div>
 
@@ -852,6 +1000,155 @@ export default function ActionItemsPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Autocomplete component for Assigned To field
+interface AutocompleteProps {
+  value: string;
+  onChange: (value: string) => void;
+  crewMembers: CrewMember[];
+  subcontractors: Subcontractor[];
+  placeholder?: string;
+}
+
+function AssignedToAutocomplete({ value, onChange, crewMembers, subcontractors, placeholder }: AutocompleteProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
+
+  // Combine crew members and subcontractors into assignee options
+  const assigneeOptions = React.useMemo(() => {
+    const options: Array<{ id: string; name: string; type: 'crew' | 'subcontractor'; details?: string }> = [];
+    
+    // Add crew members
+    crewMembers.forEach(member => {
+      options.push({
+        id: `crew_${member.id}`,
+        name: member.name,
+        type: 'crew',
+        details: member.role ? `(${member.role})` : ''
+      });
+    });
+    
+    // Add subcontractors
+    subcontractors.forEach(sub => {
+      const contactPerson = sub.contact_person ? ` - ${sub.contact_person}` : '';
+      options.push({
+        id: `sub_${sub.id}`,
+        name: sub.name,
+        type: 'subcontractor',
+        details: sub.specialty ? `(${sub.specialty}${contactPerson})` : contactPerson
+      });
+    });
+    
+    return options;
+  }, [crewMembers, subcontractors]);
+
+  // Filter options based on input
+  const filteredOptions = assigneeOptions.filter(option =>
+    option.name.toLowerCase().includes(inputValue.toLowerCase()) ||
+    (option.details && option.details.toLowerCase().includes(inputValue.toLowerCase()))
+  );
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setInputValue(newValue);
+    onChange(newValue);
+    setIsOpen(true);
+  };
+
+  const handleOptionClick = (option: typeof assigneeOptions[0]) => {
+    setInputValue(option.name);
+    onChange(option.name);
+    setIsOpen(false);
+  };
+
+  const handleInputFocus = () => {
+    setIsOpen(true);
+  };
+
+  const handleInputBlur = () => {
+    // Delay closing to allow option clicks
+    setTimeout(() => setIsOpen(false), 200);
+  };
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        onBlur={handleInputBlur}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        placeholder={placeholder || "Type to search crew/contractors or enter custom name"}
+      />
+      
+      {isOpen && (filteredOptions.length > 0 || inputValue.trim()) && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {filteredOptions.length > 0 && (
+            <>
+              {filteredOptions.map((option) => (
+                <div
+                  key={option.id}
+                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center justify-between"
+                  onClick={() => handleOptionClick(option)}
+                >
+                  <div>
+                    <span className="font-medium">{option.name}</span>
+                    {option.details && (
+                      <span className="text-sm text-gray-500 ml-2">{option.details}</span>
+                    )}
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    option.type === 'crew' 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {option.type === 'crew' ? 'Crew' : 'Contractor'}
+                  </span>
+                </div>
+              ))}
+              {inputValue.trim() && !filteredOptions.some(opt => opt.name.toLowerCase() === inputValue.toLowerCase()) && (
+                <div className="px-3 py-2 border-t border-gray-200">
+                  <div
+                    className="flex items-center justify-between hover:bg-gray-50 cursor-pointer p-2 rounded"
+                    onClick={() => {
+                      setInputValue(inputValue.trim());
+                      onChange(inputValue.trim());
+                      setIsOpen(false);
+                    }}
+                  >
+                    <span>Use "{inputValue.trim()}" as custom assignee</span>
+                    <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">Custom</span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          
+          {filteredOptions.length === 0 && inputValue.trim() && (
+            <div className="px-3 py-2">
+              <div
+                className="flex items-center justify-between hover:bg-gray-50 cursor-pointer p-2 rounded"
+                onClick={() => {
+                  setInputValue(inputValue.trim());
+                  onChange(inputValue.trim());
+                  setIsOpen(false);
+                }}
+              >
+                <span>Add "{inputValue.trim()}" as assignee</span>
+                <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">Custom</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
